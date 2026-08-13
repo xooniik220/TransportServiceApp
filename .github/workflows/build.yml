@@ -18,7 +18,7 @@ jobs:
         run: |
           mkdir -p appsource
 
-          ZIP_FILE=$(find . -maxdepth 1 -type f -name "*.zip" | head -1)
+          ZIP_FILE=$(find . -maxdepth 1 -type f \( -name "*.zip" -o -name "*.ZIP" \) | head -n 1)
 
           if [ -z "$ZIP_FILE" ]; then
             echo "ERROR: ZIP file not found"
@@ -26,27 +26,27 @@ jobs:
           fi
 
           echo "Found ZIP: $ZIP_FILE"
+
           unzip -o "$ZIP_FILE" -d appsource
+
+          echo "Extracted files:"
+          find appsource -maxdepth 3 -type f | head -100
 
       - name: Find Android project
         run: |
-          GRADLEW=$(find . -type f -name gradlew | head -1)
+          PROJECT_DIR=$(find "$GITHUB_WORKSPACE/appsource" -type f -name "gradlew" -print -quit | xargs -r dirname)
 
-          if [ -z "$GRADLEW" ]; then
-            echo "ERROR: gradlew not found"
-            echo "Files found:"
-            find . -maxdepth 5 -type f | head -200
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "ERROR: Android project with gradlew not found"
+            echo "Searching for Android project files..."
+            find "$GITHUB_WORKSPACE/appsource" -maxdepth 5 -type f \( -name "settings.gradle" -o -name "settings.gradle.kts" -o -name "build.gradle" -o -name "build.gradle.kts" \)
             exit 1
           fi
 
-          echo "Found gradlew at: $GRADLEW"
+          echo "Android project found at: $PROJECT_DIR"
 
-          PROJECT_DIR=$(dirname "$GRADLEW")
-
-          echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
-          echo "GRADLEW=$GRADLEW" >> $GITHUB_ENV
-
-          chmod +x "$GRADLEW"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "GRADLEW=$PROJECT_DIR/gradlew" >> "$GITHUB_ENV"
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -60,11 +60,19 @@ jobs:
 
           chmod +x ./gradlew
 
-          ./gradlew assembleDebug --no-daemon
+          echo "Java version:"
+          java -version
+
+          echo "Gradle version:"
+          ./gradlew --version
+
+          echo "Building APK..."
+
+          ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Find APK
         run: |
-          APK=$(find . -type f -name "*.apk" | head -1)
+          APK=$(find "$PROJECT_DIR" -type f -name "*.apk" | head -n 1)
 
           if [ -z "$APK" ]; then
             echo "ERROR: APK not found"
@@ -72,11 +80,12 @@ jobs:
           fi
 
           echo "APK found: $APK"
-          echo "APK_PATH=$APK" >> $GITHUB_ENV
+
+          echo "APK_PATH=$APK" >> "$GITHUB_ENV"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Android-APK
-          path: ${{ env.PROJECT_DIR }}/**/*.apk
+          path: ${{ env.APK_PATH }}
           if-no-files-found: error
